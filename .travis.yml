@@ -1,49 +1,40 @@
-language: rust
-cache: cargo
+language: minimal
+
+cache:
+  - cargo
+  - directories:
+      - $HOME/docker
+
+services:
+  - docker
 
 git:
-  depth: 3
+  depth: 1
 
-rust:
-  - nightly
+before_cache:
+  # Save tagged docker images
+  - >
+      mkdir -p $HOME/docker && docker images -a --filter='dangling=false' --format '{{.Repository}}:{{.Tag}} {{.ID}}'
+      | xargs -n 2 -t sh -c 'test -e $HOME/docker/$1.tar.gz || docker save $0 | gzip -2 > $HOME/docker/$1.tar.gz'
 
-script: cargo test --workspace
-
-matrix:
-  allow_failures:
-    - env: TMUX_VERSION=master
-    - env: TMUX_VERSION=2.9a
-    - env: TMUX_VERSION=2.8
-  exclude:
-    - os: osx
-      env: TMUX_VERSION=2.9a
-      env: TMUX_VERSION=2.8
-
-env:
-  - TMUX_VERSION=master
-  - TMUX_VERSION=3.0a
-  - TMUX_VERSION=2.9a
-  - TMUX_VERSION=2.8
-
-os:
-  - linux
-  - osx
+before_install:
+  - if [[ -d $HOME/docker ]]; then ls $HOME/docker/*.tar.gz | xargs -I {file} sh -c "zcat {file} | docker load"; fi
+  - docker pull brianp/muxed:nix-stable
+  - make start
+  - docker ps -a
 
 before_script:
-  - if [ "$TRAVIS_OS_NAME" == "linux" ]; then
-        sudo apt-get remove tmux && sudo apt-get install libevent-dev;
-    fi
-  - if [ "$TRAVIS_OS_NAME" == "osx" ]; then
-        brew update;
-    fi
-  - git clone https://github.com/tmux/tmux.git tmux
-  - cd tmux
-  - git checkout $TMUX_VERSION
-  - sh autogen.sh
-  - ./configure --prefix=$HOME/tmux && make && make install
-  - export PATH=$PATH:$HOME/tmux/bin
-  - cd ..
-  - tmux -V
+  - docker exec -w /opt/tmux muxed.$MUXED_ENV.container git checkout $TMUX_VERSION
+
+after_script:
+  - make stop
+
+script: make cargo cmd='test --workspace --color=always'
+
+env:
+  - MUXED_ENV=nix TMUX_VERSION=3.0a
+
+os: linux
 
 notifications:
   email: false
